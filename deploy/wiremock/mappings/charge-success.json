@@ -1,0 +1,12 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPath": "/v1/charges"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "payment_id": "pay_{{randomValue length=12 type='ALPHANUMERIC'}}" },
+    "transformers": ["response-template"]
+  }
+}
