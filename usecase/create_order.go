@@ -13,7 +13,7 @@ type CreateOrderRequest struct {
 	CustomerID domain.CustomerID
 	Tier       domain.CustomerTier
 	Items      []domain.Item
-	Email      string // PII: не должен попадать в логи
+	Email      string // PII: must never reach the logs
 }
 
 type CreateOrderResponse struct {
@@ -23,8 +23,8 @@ type CreateOrderResponse struct {
 	Events    []domain.Event
 }
 
-// CreateOrderInteractor — интерфейс, который оборачивают декораторы
-// observability (TracedInteractor, LoggingInteractor, MetricsInteractor).
+// CreateOrderInteractor is the interface wrapped by the observability decorators
+// (TracedInteractor, LoggingInteractor, MetricsInteractor).
 type CreateOrderInteractor interface {
 	Execute(ctx context.Context, req *CreateOrderRequest) (*CreateOrderResponse, error)
 }
@@ -50,7 +50,7 @@ func (uc *createOrder) Execute(ctx context.Context, req *CreateOrderRequest) (*C
 		return nil, err
 	}
 
-	// TODO(outbox): списание и смена статуса должны быть согласованы (idempotency key + outbox/saga).
+	// TODO: a timeout here means "unknown", not "failed" (see ANSWERS.md Q3): mark payment_pending and reconcile.
 	paymentID, chargeErr := uc.charge(ctx, order)
 
 	finalEvents, err := uc.finalize(ctx, order, chargeErr)
@@ -98,7 +98,7 @@ func (uc *createOrder) charge(ctx context.Context, order *domain.Order) (payment
 	return res.PaymentID, err
 }
 
-// finalize фиксирует итоговый статус заказа. Здесь же будет резервирование в Inventory Service.
+// finalize persists the final order status. Inventory Service reservation belongs here as well.
 func (uc *createOrder) finalize(ctx context.Context, order *domain.Order, chargeErr error) (events []domain.Event, err error) {
 	ctx, done := uc.probe.StepStarted(ctx, StepFulfillment)
 	defer func() { done(err) }()

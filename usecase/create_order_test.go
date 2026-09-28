@@ -13,9 +13,9 @@ import (
 	"github.com/rootalex/order-observability/domain"
 )
 
-// Unit-тесты usecase: здесь моки портов — правильный выбор. Проверяется логика
-// ветвления (что делать при отказе/сбое платёжки), а не SQL и не HTTP —
-// их проверяют интеграционные тесты в testing/integration.
+// Usecase unit tests: mocking the ports is the right choice here. They check the branching
+// logic (what to do on payment decline or failure), not SQL or HTTP:
+// those are covered by the integration tests in testing/integration.
 
 type savedOrder struct {
 	status domain.Status
@@ -89,7 +89,7 @@ func TestCreateOrder_Success(t *testing.T) {
 	assert.Equal(t, []savedOrder{{status: domain.StatusPaid, events: []string{"order.paid"}}}, repo.updated)
 
 	require.Len(t, resp.Events, 2)
-	// Время детерминировано: FakeClock, никакого time.Now() в тесте.
+	// Time is deterministic: FakeClock, no time.Now() in the test.
 	assert.Equal(t, fixedNow, resp.Events[0].OccurredAt())
 }
 
@@ -136,8 +136,8 @@ func TestCreateOrder_InvalidRequestDoesNotTouchPayment(t *testing.T) {
 	assert.Zero(t, pay.got)
 }
 
-// Сценарий из Q3: деньги списаны, а сохранить статус не удалось.
-// Usecase обязан вернуть ошибку — это сигнал для алерта и reconciliation.
+// Scenario from Q3: the payment was charged, but saving the status failed.
+// The usecase must return an error: it is the signal for alerting and reconciliation.
 func TestCreateOrder_ChargedButUpdateFailed(t *testing.T) {
 	repo := &fakeRepo{updateErr: errors.New("db down")}
 	uc := NewCreateOrder(repo, &fakePayment{res: ChargeResult{PaymentID: "pay-1"}}, fixedID("ord-1"), clock.NewFake(fixedNow), nil)

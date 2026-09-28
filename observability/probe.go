@@ -10,8 +10,8 @@ import (
 	"github.com/rootalex/order-observability/usecase"
 )
 
-// Probe реализует usecase.Probe: каждый шаг usecase — дочерний span
-// и наблюдение в order_processing_duration_seconds{step}.
+// Probe implements usecase.Probe: every usecase step is a child span
+// and an observation in order_processing_duration_seconds{step}.
 type Probe struct {
 	tracer  trace.Tracer
 	metrics *Metrics

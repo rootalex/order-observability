@@ -1,5 +1,5 @@
-# Локальное окружение: БД, заглушка платёжки и стек observability.
-# Сам order service запускается на хосте: `make run`.
+# Local environment: database, payment stub and the observability stack.
+# The order service itself runs on the host: `make run`.
 name: orders
 
 services:
@@ -28,7 +28,7 @@ services:
       postgres:
         condition: service_healthy
 
-  # Заглушка Payment Service для локального запуска (в тестах WireMock поднимает testcontainers).
+  # Payment Service stub for local runs (in tests, testcontainers starts its own WireMock).
   payment-mock:
     image: wiremock/wiremock:3.9.1
     command: ["--verbose"]
@@ -37,7 +37,7 @@ services:
     volumes:
       - ./deploy/wiremock/mappings:/home/wiremock/mappings:ro
 
-  # Трейсы: OTLP gRPC 4317 / HTTP 4318, UI http://localhost:16686
+  # Traces: OTLP gRPC 4317 / HTTP 4318, UI http://localhost:16686
   jaeger:
     image: jaegertracing/all-in-one:1.60
     environment:
@@ -47,7 +47,7 @@ services:
       - "4317:4317"
       - "4318:4318"
 
-  # Метрики: UI http://localhost:9090. Скрейпит order service на хосте (:8080/metrics).
+  # Metrics: UI http://localhost:9090. Scrapes the order service on the host (:8080/metrics).
   prometheus:
     image: prom/prometheus:v2.54.1
     command:
@@ -60,7 +60,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  # Дашборды: http://localhost:3000 (без логина). Exemplars ведут из метрик в трейсы Jaeger.
+  # Dashboards: http://localhost:3000 (no login). Exemplars link metrics to Jaeger traces.
   grafana:
     image: grafana/grafana:11.2.0
     environment:

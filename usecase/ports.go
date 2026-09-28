@@ -13,8 +13,8 @@ var (
 	ErrOrderAlreadyExists = errors.New("order already exists")
 )
 
-// OrderRepository — порт хранилища. ctx нужен для отмены запросов и проброса трейса.
-// events сохраняются в outbox в той же транзакции, что и заказ.
+// OrderRepository is the storage port. ctx is needed for cancellation and trace propagation.
+// events are written to the outbox in the same transaction as the order.
 type OrderRepository interface {
 	Create(ctx context.Context, o *domain.Order, events []domain.Event) error
 	Update(ctx context.Context, o *domain.Order, events []domain.Event) error
@@ -32,7 +32,7 @@ type ChargeResult struct {
 	PaymentID string
 }
 
-// PaymentGateway — порт внешнего платёжного сервиса.
+// PaymentGateway is the port to the external payment service.
 type PaymentGateway interface {
 	Charge(ctx context.Context, req ChargeRequest) (ChargeResult, error)
 }

@@ -88,46 +88,35 @@ Alerts are based on symptoms that cost money, not on single error log lines. Exp
 
 ## Q4. Testing the outbox end-to-end without flaky timing
 
-Flakiness comes from `time.Sleep` and waiting for a background goroutine. The fix is to **make the worker steppable** and to wait on **conditions**, not on time.
+Flakiness comes from `time.Sleep` and waiting for a background goroutine. The fix is to **make the worker steppable** and to wait on **conditions**, not on time. Implemented in `outbox/relay.go` and tested in `testing/integration/outbox_relay_test.go`.
 
-1. **Design the worker so that one iteration can be called directly:** `ProcessOnce(ctx) (processed int, err error)` reads a batch (`SELECT … WHERE processed_at IS NULL ORDER BY id FOR UPDATE SKIP LOCKED LIMIT n`), publishes, and marks rows processed. `Run(ctx)` is just a loop with a ticker around it and is not needed in most tests.
-2. **Test with real infrastructure, in the test goroutine:**
+1. **One iteration is callable directly.** `ProcessOnce(ctx) (processed int, err error)` locks a batch (`SELECT … WHERE processed_at IS NULL ORDER BY id LIMIT n FOR UPDATE SKIP LOCKED`), publishes it in order, and marks each row `processed_at = clock.Now()` in the same transaction. `Run(ctx, interval)` is only a ticker loop around it, and only one test needs it.
+2. **Real database, fake broker, in the test goroutine:**
 
    ```go
-   func TestOutbox_EndToEnd(t *testing.T) {
-       db := setup.StartPostgres(ctx, t)
-       broker := setup.StartKafka(ctx, t)        // or RabbitMQ / NATS container
-       clk := clock.NewFake(baseTime)
+   createOrders(t, ctx, 3)                        // 1. aggregate + outbox rows in one transaction
+   n, err := relay.ProcessOnce(ctx)               // 2–4. read, publish, mark — synchronously
+   require.NoError(t, err)
+   assert.Equal(t, 3, n)
+   assert.Equal(t, []int64{1, 2, 3}, pub.ids())   // published in order
+   assert.Empty(t, pending(t))                    // marked processed
 
-       // 1. aggregate + outbox in one transaction
-       o := newOrder(t, clk, "ord-1")
-       require.NoError(t, repo.Create(ctx, o, o.PullEvents()))
-
-       // 2–4. one deterministic worker step: read, publish, mark processed
-       n, err := worker.ProcessOnce(ctx)
-       require.NoError(t, err)
-       require.Equal(t, 1, n)
-
-       // assert the message: consumer with a deadline, not a sleep
-       msg := broker.Consume(t, "orders", 10*time.Second)
-       assert.Equal(t, "order.created", msg.Type)
-       assert.Equal(t, "ord-1", msg.Key)
-       assert.Contains(t, msg.Headers["traceparent"], "00-")   // trace continues
-
-       assertProcessed(t, db, "ord-1")
-   }
+   n, _ = relay.ProcessOnce(ctx)
+   assert.Zero(t, n)                              // nothing is published twice
    ```
 
-3. **If the real background loop must be tested**, use `require.Eventually(t, cond, 10*time.Second, 50*time.Millisecond)`. It returns as soon as the condition is true, and the long timeout only matters when something is broken, so it is fast *and* stable.
-4. **Scenarios that matter more than the happy path**, all deterministic with `ProcessOnce`:
-   - **publish fails** (broker stopped, or a fake publisher returning an error) → the row stays unprocessed → the next `ProcessOnce` publishes it (**at-least-once**);
-   - **crash after publish, before mark** → published twice → the consumer must deduplicate by event id (test the consumer's idempotency separately);
-   - **two workers concurrently** → `SKIP LOCKED` → each event is published exactly once per successful run;
-   - **ordering** per aggregate (`ORDER BY id`);
-   - **atomicity**: if the aggregate insert fails, there is no outbox row (same transaction — already covered by the rollback test in `order_repo_test.go`).
-5. **Time** in the worker (retry backoff, "retry after") comes from `clock.Clock`, so `clk.Advance(time.Minute)` replaces waiting a minute.
+   The database must be real: the guarantees come from transactions and row locks, which a mock cannot reproduce. The broker is behind a `Publisher` port and is replaced with a recording fake; a real broker adapter would get its own container test, like the WireMock test for the payment client.
+3. **The background loop** is tested once, with `require.Eventually(t, cond, 10*time.Second, 20*time.Millisecond)`. It returns as soon as the condition holds; the long timeout only matters when something is broken, so the test is both fast and stable.
+4. **The failure scenarios, all deterministic:**
+   - **publish fails** on event 2 → event 1 is marked, 2 and 3 stay pending, and 3 is **not** published ahead of 2. The next run delivers 2 and 3: at-least-once, in order.
+   - **parallel relays**: relay A locks events 1–5 and is held inside its transaction by a channel; relay B, run meanwhile, gets 6–10. No sleeps are involved. B has its own timeout, so a regression (removing `SKIP LOCKED`) fails in 5 s instead of hanging the suite.
+   - **trace continuity**: the relay is called with an empty `ctx`, and the publisher still sees the trace ID of the original `POST /orders` (restored from the `traceparent` column).
+   - **atomicity**: if the aggregate insert fails, there is no outbox row, because both are in one transaction (`order_repo_test.go`, rollback subtest).
+5. **Time** in the relay (`processed_at`) comes from `clock.Clock`, so the test asserts it exactly.
 
-In this repo the write side is implemented and tested (outbox row in the same transaction, JSON payload, `traceparent`). The relay worker is not implemented; the test above is how it would be tested.
+Each test was also checked against a deliberately broken relay: without `SKIP LOCKED`, and with a batch that continues after a failed publish. Both regressions fail the tests (TESTING.md).
+
+Not covered: **crash after publish, before mark**. The event is published again, which is inherent to at-least-once delivery. The consumer must deduplicate by `Message.ID`, and that belongs in the consumer's own tests. A **poison message** that always fails blocks its batch; production would add an attempts counter and a dead-letter state.
 
 ## Q5. Time-dependent tests
 

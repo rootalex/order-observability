@@ -13,8 +13,8 @@ import (
 	"github.com/rootalex/order-observability/usecase"
 )
 
-// Metrics — бизнес-метрики обработки заказов.
-// Все лейблы имеют ограниченный набор значений; ID заказов/клиентов живут в трейсах и логах.
+// Metrics are the business metrics of order processing.
+// All labels have a bounded set of values; order and customer IDs live in traces and logs.
 type Metrics struct {
 	ordersCreated *prometheus.CounterVec
 	stepDuration  *prometheus.HistogramVec
@@ -41,7 +41,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	return m
 }
 
-// MetricsHandler отдаёт /metrics в формате OpenMetrics — он нужен для exemplars.
+// MetricsHandler serves /metrics in OpenMetrics format, which exemplars require.
 func MetricsHandler(g prometheus.Gatherer) http.Handler {
 	return promhttp.HandlerFor(g, promhttp.HandlerOpts{EnableOpenMetrics: true})
 }
@@ -57,7 +57,7 @@ func (m *Metrics) observeStep(ctx context.Context, step usecase.Step, d time.Dur
 	obs.Observe(d.Seconds())
 }
 
-// MetricsInteractor считает заказы по результату и держит gauge заказов в обработке.
+// MetricsInteractor counts orders by outcome and tracks orders in processing.
 type MetricsInteractor struct {
 	inner   usecase.CreateOrderInteractor
 	metrics *Metrics
@@ -88,8 +88,8 @@ func (mi *MetricsInteractor) Execute(ctx context.Context, req *usecase.CreateOrd
 	return resp, err
 }
 
-// tierLabel защищает от взрыва кардинальности: неизвестные значения из запроса
-// не должны порождать новые time series.
+// tierLabel guards against cardinality explosion: unknown values from a request
+// must not create new time series.
 func tierLabel(t domain.CustomerTier) string {
 	switch t {
 	case domain.TierFree, domain.TierPremium:
@@ -99,7 +99,7 @@ func tierLabel(t domain.CustomerTier) string {
 	}
 }
 
-// traceExemplar связывает точку метрики с трейсом (Grafana: exemplar -> Jaeger).
+// traceExemplar links a metric sample to a trace (Grafana: exemplar -> Jaeger).
 func traceExemplar(ctx context.Context) prometheus.Labels {
 	sc := trace.SpanContextFromContext(ctx)
 	if !sc.IsSampled() {

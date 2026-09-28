@@ -16,22 +16,22 @@ import (
 	"github.com/rootalex/order-observability/usecase"
 )
 
-// Типы логов: operational — здоровье системы (запросы, длительность, ошибки),
-// business — факты предметной области (доменные события).
+// Log types: operational is system health (requests, durations, failures),
+// business is facts of the domain (domain events).
 const (
 	logTypeKey  = "log_type"
 	operational = "operational"
 	business    = "business"
 )
 
-// NewLogger — JSON-логгер с trace_id/span_id в каждой записи и маскированием PII.
-// Писать логи нужно через *Context-методы (InfoContext, ErrorContext), иначе trace_id не попадёт в запись.
+// NewLogger returns a JSON logger with trace_id/span_id in every record and PII redaction.
+// Log through the *Context methods (InfoContext, ErrorContext), otherwise trace_id is missing.
 func NewLogger(w io.Writer, level slog.Leveler) *slog.Logger {
 	h := slog.NewJSONHandler(w, &slog.HandlerOptions{Level: level, ReplaceAttr: RedactPII})
 	return slog.New(NewTraceHandler(h))
 }
 
-// TraceHandler добавляет trace_id и span_id из ctx в каждую запись.
+// TraceHandler adds trace_id and span_id from ctx to every record.
 type TraceHandler struct {
 	slog.Handler
 }
@@ -56,7 +56,7 @@ func (h *TraceHandler) WithGroup(name string) slog.Handler {
 	return &TraceHandler{Handler: h.Handler.WithGroup(name)}
 }
 
-// Вторая линия защиты от утечки PII. Первая — логировать только поля из allowlist.
+// Second line of defense against PII leaks. The first one is logging allowlisted fields only.
 var sensitiveKeys = map[string]struct{}{
 	"email": {}, "phone": {}, "card": {}, "card_number": {}, "cvv": {},
 	"password": {}, "token": {}, "authorization": {}, "address": {},
@@ -64,7 +64,7 @@ var sensitiveKeys = map[string]struct{}{
 
 const redacted = "[REDACTED]"
 
-// RedactPII — ReplaceAttr для slog: маскирует значения чувствительных ключей на любом уровне вложенности.
+// RedactPII is a slog ReplaceAttr that masks values of sensitive keys at any nesting level.
 func RedactPII(_ []string, a slog.Attr) slog.Attr {
 	if _, ok := sensitiveKeys[strings.ToLower(a.Key)]; ok {
 		return slog.String(a.Key, redacted)
@@ -72,15 +72,15 @@ func RedactPII(_ []string, a slog.Attr) slog.Attr {
 	return a
 }
 
-// isExpected отделяет ожидаемые бизнес-ошибки от сбоев: первые не должны
-// поднимать ERROR-логи, span status Error и алерты.
+// isExpected separates expected business outcomes from failures: the former must not
+// produce ERROR logs, span status Error or alerts.
 func isExpected(err error) bool {
 	return errors.Is(err, domain.ErrEmptyOrder) ||
 		errors.Is(err, domain.ErrInvalidQuantity) ||
 		errors.Is(err, usecase.ErrPaymentDeclined)
 }
 
-// stackError хранит стек в точке, где ошибка возникла (обычно — в адаптере).
+// stackError keeps the stack of the point where the error originated (usually an adapter).
 type stackError struct {
 	err   error
 	stack []uintptr
@@ -89,7 +89,7 @@ type stackError struct {
 func (e *stackError) Error() string { return e.err.Error() }
 func (e *stackError) Unwrap() error { return e.err }
 
-// WithStack прикрепляет к ошибке стек вызовов. Повторно стек не добавляется.
+// WithStack attaches the call stack to err. An existing stack is kept.
 func WithStack(err error) error {
 	if err == nil {
 		return nil
@@ -101,8 +101,8 @@ func WithStack(err error) error {
 	return &stackError{err: err, stack: callers(3)}
 }
 
-// ErrorAttr — группа "error" с сообщением и стеком. Если стека у ошибки нет,
-// берётся стек точки логирования — это хотя бы показывает, где ошибка пересекла границу.
+// ErrorAttr returns an "error" group with message and stack. If err carries no stack,
+// the stack of the logging point is used: it at least shows where the error crossed the boundary.
 func ErrorAttr(err error) slog.Attr {
 	var se *stackError
 	pcs := callers(3)
@@ -134,8 +134,8 @@ func formatStack(pcs []uintptr) string {
 	return b.String()
 }
 
-// LoggingInteractor логирует запрос и ответ на границе usecase (вариант C),
-// а доменные события — как бизнес-логи.
+// LoggingInteractor logs request and response at the usecase boundary (option C)
+// and domain events as business logs.
 type LoggingInteractor struct {
 	inner usecase.CreateOrderInteractor
 	log   *slog.Logger
@@ -147,7 +147,7 @@ func NewLoggingInteractor(inner usecase.CreateOrderInteractor, log *slog.Logger)
 
 func (l *LoggingInteractor) Execute(ctx context.Context, req *usecase.CreateOrderRequest) (*usecase.CreateOrderResponse, error) {
 	start := time.Now()
-	// Только поля из allowlist: req целиком не логируется (в нём Email).
+	// Allowlisted fields only: req is never logged as a whole (it contains Email).
 	l.log.InfoContext(ctx, "create order started",
 		slog.String(logTypeKey, operational),
 		slog.Group("request",
@@ -172,7 +172,7 @@ func (l *LoggingInteractor) Execute(ctx context.Context, req *usecase.CreateOrde
 	}
 	switch {
 	case err != nil && isExpected(err):
-		// Ожидаемый бизнес-исход (невалидный заказ, отказ платёжки) — не авария: WARN без стека.
+		// An expected business outcome (invalid order, declined payment) is not a failure: WARN, no stack.
 		l.log.WarnContext(ctx, "create order rejected", append(attrs, slog.String("reason", err.Error()))...)
 		return resp, err
 	case err != nil:

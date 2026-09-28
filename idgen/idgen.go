@@ -1,4 +1,4 @@
-// Package idgen генерирует идентификаторы заказов.
+// Package idgen generates order identifiers.
 package idgen
 
 import (

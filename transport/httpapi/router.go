@@ -1,5 +1,5 @@
-// Package httpapi — HTTP-граница Order Service: разбор запросов, коды ответов,
-// извлечение trace-контекста и access-логи.
+// Package httpapi is the HTTP boundary of the Order Service: request parsing, status codes,
+// trace context extraction and access logs.
 package httpapi
 
 import (
@@ -21,8 +21,8 @@ func NewRouter(uc usecase.CreateOrderInteractor, log *slog.Logger, metrics http.
 	mux.Handle("GET /metrics", metrics)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
-	// otelhttp снаружи: извлекает traceparent от API GW и создаёт server span,
-	// поэтому access-лог внутри уже содержит trace_id.
+	// otelhttp is outermost: it extracts traceparent from API GW and starts the server span,
+	// so the access log inside already has trace_id.
 	return otelhttp.NewHandler(accessLog(log, mux), "http.server",
 		otelhttp.WithFilter(func(r *http.Request) bool { return !isInfraPath(r.URL.Path) }),
 		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string { return r.Method + " " + r.URL.Path }),
@@ -79,7 +79,7 @@ func (h *createOrderHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, usecase.ErrPaymentDeclined) && resp != nil:
 		writeJSON(w, http.StatusPaymentRequired, toResponse(resp))
 	case err != nil:
-		// Детали ошибки — в логах и трейсе, наружу не отдаём.
+		// Error details go to logs and traces, never to the client.
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "internal error"})
 	default:
 		writeJSON(w, http.StatusCreated, toResponse(resp))
@@ -96,7 +96,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// accessLog — операционный лог каждого запроса на HTTP-границе.
+// accessLog writes an operational log entry for every request at the HTTP boundary.
 func accessLog(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if isInfraPath(r.URL.Path) {

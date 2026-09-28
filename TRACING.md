@@ -10,7 +10,7 @@
 | Domain | **none** | Domain has no `ctx` and no tracer. Traced from the outside (see Q4) |
 | Repository | **A** | `ctx` is passed to every method; `otelsql` creates SQL spans automatically (`repo/postgres/order_repo.go`) |
 | Outgoing HTTP | A | `otelhttp.NewTransport` creates the client span and injects `traceparent` (`payment/client.go`) |
-| Async (outbox) | stored context | `traceparent` column in `outbox`, written in the same transaction as the aggregate |
+| Async (outbox) | stored context | `traceparent` column in `outbox`, written in the same transaction as the aggregate; the relay continues the trace with an `outbox.publish <event>` producer span (`outbox/relay.go`) |
 
 A real trace of `POST /orders` in Jaeger (local run against `docker-compose`):
 
@@ -80,7 +80,7 @@ db, err := otelsql.Open("pgx", dsn,
 
 A decorator (`TracedOrderRepo`) would also work, but it duplicates what the driver already provides and cannot see the individual SQL statements.
 
-The repository also **persists** the trace context: `outboxMut` injects the current `traceparent` into each outbox row. The worker that publishes the event can then continue the same trace, even though it runs later in another process.
+The repository also **persists** the trace context: `outboxMut` injects the current `traceparent` into each outbox row. The relay extracts it and starts `outbox.publish <event>` as a child span, so publishing appears in the **same trace** as the original `POST /orders`, even though it happens later and possibly in another process (verified in Jaeger and in `TestOutboxRelay_Integration`).
 
 ## 4. How do you trace a domain method without passing context to it?
 

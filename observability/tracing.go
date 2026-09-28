@@ -1,5 +1,5 @@
-// Package observability содержит декораторы, которые добавляют трейсы, логи и метрики
-// вокруг usecase, не затрагивая бизнес-код и домен.
+// Package observability provides decorators that add traces, logs and metrics
+// around usecases without touching business code or the domain.
 package observability
 
 import (
@@ -21,9 +21,9 @@ import (
 
 const instrumentationName = "github.com/rootalex/order-observability/observability"
 
-// InitTracerProvider настраивает глобальный TracerProvider с OTLP/HTTP-экспортом
-// на endpoint (базовый адрес, как в OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318)
-// и W3C-пропагатором (traceparent).
+// InitTracerProvider sets up the global TracerProvider with OTLP/HTTP export
+// to endpoint (a base URL as in OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318)
+// and the W3C propagator (traceparent).
 func InitTracerProvider(ctx context.Context, serviceName, endpoint string) (shutdown func(context.Context) error, err error) {
 	exporter, err := otlptracehttp.New(ctx,
 		otlptracehttp.WithEndpointURL(strings.TrimRight(endpoint, "/")+"/v1/traces"))
@@ -49,8 +49,8 @@ func InitTracerProvider(ctx context.Context, serviceName, endpoint string) (shut
 	return tp.Shutdown, nil
 }
 
-// TracedInteractor создаёт span вокруг usecase (вариант C) и передаёт его дальше через ctx (вариант A).
-// Доменные события из ответа становятся span events — так трассируется домен без ctx.
+// TracedInteractor creates a span around the usecase (option C) and passes it on via ctx (option A).
+// Domain events from the response become span events: this is how the domain is traced without ctx.
 type TracedInteractor struct {
 	inner  usecase.CreateOrderInteractor
 	tracer trace.Tracer

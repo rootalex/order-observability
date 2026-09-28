@@ -18,6 +18,7 @@ import (
 	"github.com/rootalex/order-observability/clock"
 	"github.com/rootalex/order-observability/idgen"
 	"github.com/rootalex/order-observability/observability"
+	"github.com/rootalex/order-observability/outbox"
 	"github.com/rootalex/order-observability/payment"
 	"github.com/rootalex/order-observability/repo/postgres"
 	"github.com/rootalex/order-observability/transport/httpapi"
@@ -40,7 +41,7 @@ func run() error {
 	log := observability.NewLogger(os.Stdout, slog.LevelInfo)
 	slog.SetDefault(log)
 
-	// Ошибки экспорта трейсов не должны теряться среди INFO-логов.
+	// Trace export errors must not get lost among INFO logs.
 	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
 		log.Warn("opentelemetry error", "error", err)
 	}))
@@ -72,10 +73,15 @@ func run() error {
 	var uc usecase.CreateOrderInteractor = usecase.NewCreateOrder(
 		repo, pay, idgen.Random{}, clock.Real{}, observability.NewProbe(tp, metrics),
 	)
-	// Трейс снаружи, чтобы логи и метрики видели span в ctx (trace_id, exemplars).
+	// Tracing is outermost so that logging and metrics see the span in ctx (trace_id, exemplars).
 	uc = observability.NewMetricsInteractor(uc, metrics)
 	uc = observability.NewLoggingInteractor(uc, log)
 	uc = observability.NewTracedInteractor(uc, tp)
+
+	// Outbox relay: publishes domain events written by the repository.
+	// LogPublisher stands in for a real broker adapter.
+	relay := outbox.NewRelay(db, outbox.LogPublisher{Log: log}, clock.Real{}, tp, log, 100)
+	go relay.Run(ctx, time.Second)
 
 	srv := &http.Server{
 		Addr:              env("HTTP_ADDR", ":8080"),

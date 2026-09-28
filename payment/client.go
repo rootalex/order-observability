@@ -1,4 +1,4 @@
-// Package payment — HTTP-адаптер PaymentGateway. В тестах его API подменяет WireMock.
+// Package payment is the HTTP adapter for PaymentGateway. In tests, WireMock stands in for the API.
 package payment
 
 import (
@@ -21,7 +21,7 @@ type Client struct {
 }
 
 func NewClient(baseURL string, timeout time.Duration) *Client {
-	// otelhttp.NewTransport создаёт client span и пробрасывает traceparent в Payment Service.
+	// otelhttp.NewTransport creates a client span and propagates traceparent to the Payment Service.
 	return &Client{baseURL: baseURL, http: &http.Client{
 		Timeout:   timeout,
 		Transport: otelhttp.NewTransport(http.DefaultTransport),

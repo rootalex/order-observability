@@ -19,7 +19,7 @@ import (
 	"github.com/rootalex/order-observability/usecase"
 )
 
-// Наносекунды в фиксированном времени — намеренно: Postgres хранит микросекунды.
+// Nanoseconds in the fixed time are deliberate: Postgres stores microseconds.
 var baseTime = time.Date(2026, 9, 28, 12, 0, 0, 123456789, time.UTC)
 
 func newOrder(t *testing.T, clk clock.Clock, id domain.OrderID) *domain.Order {
@@ -54,7 +54,7 @@ func TestOrderRepo_Integration(t *testing.T) {
 		require.NoError(t, repo.Create(spanCtx, o, o.PullEvents()))
 		span.End()
 
-		// Проверяем то, что реально легло в таблицы, а не то, что вернул репозиторий.
+		// Assert what actually landed in the tables, not what the repository returned.
 		var (
 			customerID, tier, status string
 			failReason               sql.NullString
@@ -98,7 +98,7 @@ func TestOrderRepo_Integration(t *testing.T) {
 		o := newOrder(t, clk, "ord-update")
 		require.NoError(t, repo.Create(ctx, o, o.PullEvents()))
 
-		// Параллельный писатель меняет колонку, которую текущая операция не трогает.
+		// A concurrent writer changes a column that the current operation does not touch.
 		_, err := db.ExecContext(ctx, `UPDATE orders SET customer_id = 'changed-concurrently' WHERE id = $1`, "ord-update")
 		require.NoError(t, err)
 
@@ -155,7 +155,7 @@ func TestOrderRepo_Integration(t *testing.T) {
 		})
 
 		t.Run("non-positive quantity is rejected and transaction rolled back", func(t *testing.T) {
-			// Обходим доменную валидацию: проверяем именно защиту на уровне БД.
+			// Bypass domain validation: this checks the database's own protection.
 			o := domain.Rehydrate("ord-bad-qty", "c-1", domain.TierFree,
 				[]domain.Item{{ProductID: "p-1", Quantity: 0, PriceCents: 100}},
 				domain.StatusPending, "", baseTime, baseTime)

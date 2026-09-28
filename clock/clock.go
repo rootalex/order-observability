@@ -1,4 +1,4 @@
-// Package clock абстрагирует время, чтобы тесты не зависели от time.Now().
+// Package clock abstracts time so that tests do not depend on time.Now().
 package clock
 
 import (
@@ -14,7 +14,7 @@ type Real struct{}
 
 func (Real) Now() time.Time { return time.Now().UTC() }
 
-// Fake — управляемые часы для тестов.
+// Fake is a controllable clock for tests.
 type Fake struct {
 	mu  sync.Mutex
 	now time.Time

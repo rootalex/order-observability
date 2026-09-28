@@ -1,5 +1,5 @@
-// Package domain содержит чистую бизнес-логику заказа.
-// Здесь нет context.Context, логгеров, трейсеров и метрик.
+// Package domain contains the pure business logic of an order.
+// No context.Context, loggers, tracers or metrics here.
 package domain
 
 import (
@@ -32,9 +32,9 @@ var (
 	ErrInvalidTransition = errors.New("invalid order status transition")
 )
 
-// Field — изменяемое поле агрегата. Агрегат сам отмечает, что изменилось,
-// а репозиторий обновляет только эти поля (UpdateMut). Это не инфраструктура:
-// домен не знает ни про SQL, ни про колонки.
+// Field is a mutable field of the aggregate. The aggregate records what changed,
+// and the repository updates only those fields (UpdateMut). This is not infrastructure:
+// the domain knows nothing about SQL or columns.
 type Field string
 
 const (
@@ -63,7 +63,7 @@ type Order struct {
 	changed map[Field]struct{}
 }
 
-// Rehydrate восстанавливает заказ из хранилища: без событий и без изменённых полей.
+// Rehydrate restores an order from storage: no pending events, no changed fields.
 func Rehydrate(id OrderID, customerID CustomerID, tier CustomerTier, items []Item, status Status,
 	failReason string, createdAt, updatedAt time.Time) *Order {
 	return &Order{
@@ -78,7 +78,7 @@ func Rehydrate(id OrderID, customerID CustomerID, tier CustomerTier, items []Ite
 	}
 }
 
-// NewOrder создаёт заказ. Время передаётся явно (из Clock), чтобы тесты были детерминированными.
+// NewOrder creates an order. Time is passed in explicitly (from a Clock) to keep tests deterministic.
 func NewOrder(id OrderID, customerID CustomerID, tier CustomerTier, items []Item, now time.Time) (*Order, error) {
 	if len(items) == 0 {
 		return nil, ErrEmptyOrder
@@ -143,16 +143,16 @@ func (o *Order) Fail(reason string, now time.Time) error {
 	return nil
 }
 
-// PullEvents отдаёт накопленные доменные события и очищает их.
-// Слой приложения превращает их в span events, бизнес-логи и outbox-записи.
+// PullEvents returns the recorded domain events and clears them.
+// The application layer turns them into span events, business logs and outbox rows.
 func (o *Order) PullEvents() []Event {
 	ev := o.events
 	o.events = nil
 	return ev
 }
 
-// Changes возвращает поля, изменённые с момента создания/загрузки/последнего сохранения,
-// в стабильном порядке.
+// Changes returns the fields changed since creation, loading or the last save,
+// in a stable order.
 func (o *Order) Changes() []Field {
 	var out []Field
 	for _, f := range []Field{FieldStatus, FieldFailReason, FieldUpdatedAt} {
@@ -163,7 +163,7 @@ func (o *Order) Changes() []Field {
 	return out
 }
 
-// MarkPersisted сбрасывает список изменений после успешного сохранения.
+// MarkPersisted clears the change list after a successful save.
 func (o *Order) MarkPersisted() { o.changed = nil }
 
 func (o *Order) record(e Event) { o.events = append(o.events, e) }

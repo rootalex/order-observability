@@ -23,8 +23,10 @@ Proportions: many unit tests (milliseconds), a focused set of integration tests 
 | `domain/order_test.go` | Unit | ~ms, no Docker |
 | `usecase/create_order_test.go` | Unit (fakes + `clock.Fake`) | ~ms, no Docker |
 | `observability/observability_test.go` | Unit (in-memory span recorder, Prometheus registry) | ~ms, no Docker |
+| `transport/httpapi/router_test.go` | Unit (`httptest`, fake interactor) | ~ms, no Docker |
 | `testing/integration/order_repo_test.go` | Integration (Postgres container) | ~3 s |
 | `testing/integration/payment_client_test.go` | Integration (WireMock container) | ~3 s |
+| `testing/integration/outbox_relay_test.go` | Integration (Postgres container, fake broker) | ~3 s |
 
 ```bash
 make test-unit          # no Docker
@@ -59,6 +61,28 @@ The stub matcher **is the contract**: method, path, `Content-Type`, `Idempotency
 | `timeout` | `fixedDelayMilliseconds: 2000` with a 200 ms client timeout → `net.Error.Timeout()`, and the client returns without waiting for the slow response |
 | `propagates traceparent` | The stub only matches if the `traceparent` header carries the caller's trace ID |
 
+## 3. Outbox relay test (testcontainers)
+
+`outbox/relay.go` is built to be tested without timing: `ProcessOnce` runs one batch synchronously; `Run` is only a ticker loop around it. The database is real, because locking and transactions are the point. The broker is a recording fake behind the `Publisher` port.
+
+| Subtest | Checks |
+|---|---|
+| `publishes pending events in order and marks them processed` | id order, payload, `processed_at` from the injected clock; a second run publishes nothing |
+| `failed publish keeps the event and the order for the next run` | Broker fails on event 2: event 1 is marked, 2 and 3 stay pending (3 is **not** published ahead of 2); the next run delivers them. At-least-once, no duplicates |
+| `continues the trace of the request that wrote the event` | The publisher receives a ctx whose trace ID equals the one of the original request, although the relay was called with an empty ctx |
+| `parallel relays never publish the same event twice` | Relay A locks events 1–5 and is blocked inside its transaction by channels; relay B, running meanwhile, gets 6–10. This is deterministic: no sleeps, and B has its own timeout so a regression fails in 5 s instead of hanging |
+| `Run drains the outbox in the background` | The only test of the background loop: `require.Eventually` waits for a condition, not a fixed time |
+
+## 4. HTTP handler tests
+
+`transport/httpapi/router_test.go`, `httptest` with a fake interactor:
+
+- status mapping: 201 / 400 (invalid JSON, domain validation) / 402 (declined, with the failed order in the body) / 500 without internal details;
+- JSON → `CreateOrderRequest` mapping;
+- routes, 405 and 404;
+- the access log continues the caller's `traceparent`, logs 5xx as ERROR, and never contains the request body;
+- `/healthz` and `/metrics` are not access-logged.
+
 ## Verifying that the tests can fail
 
 A test that passed on the first run proves nothing until it has been seen failing. Two realistic bugs were introduced by hand:
@@ -67,8 +91,10 @@ A test that passed on the first run proves nothing until it has been seen failin
 |---|---|---|
 | JSON tag `amount_cents` → `amount` in `payment/client.go` | **passes** (the fake never serializes) | **fails**: WireMock returns 404 in `success`, `declined`, `malformed response`, `timeout` |
 | `UpdateMut` also writes `customer_id` | not covered | **fails**: generated SQL differs, and the concurrent `customer_id` change is overwritten |
+| Relay without `SKIP LOCKED` | not covered | **fails**: relay B blocks on A's rows (`relay B must not wait for rows locked by A`) |
+| Relay continues the batch after a failed publish | not covered | **fails**: event 3 is published ahead of event 2 |
 
-Both bugs were reverted after the check. This is exactly the gap from the over-mocking example.
+All bugs were reverted after the check. This is exactly the gap from the over-mocking example.
 
 ## Time abstraction
 
@@ -76,6 +102,5 @@ Both bugs were reverted after the check. This is exactly the gap from the over-m
 
 ## Not covered (yet)
 
-- **E2E test** of `POST /orders` against the `docker-compose` environment. It was verified manually: 201, rows and outbox in Postgres, full trace in Jaeger. It is not automated.
-- **Outbox worker.** The outbox is written, but there is no relay yet. The testing approach is described in ANSWERS.md Q4.
-- **HTTP handler tests** (`transport/httpapi`) — status code mapping; these would be cheap `httptest` unit tests.
+- **E2E test** of `POST /orders` against the `docker-compose` environment. It was verified manually: 201, rows and outbox in Postgres, full trace in Jaeger including `outbox.publish` spans. It is not automated.
+- **A real broker adapter.** The relay publishes through the `Publisher` port; locally `LogPublisher` logs the messages. A Kafka/NATS adapter would get its own integration test with a broker container, like the WireMock test for the payment client.

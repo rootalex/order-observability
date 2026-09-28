@@ -2,7 +2,7 @@ package usecase
 
 import "context"
 
-// Step — шаг обработки заказа. Набор значений ограничен: он же лейбл метрики.
+// Step is an order processing step. The set of values is bounded: it is also a metric label.
 type Step string
 
 const (
@@ -11,12 +11,12 @@ const (
 	StepFulfillment Step = "fulfillment"
 )
 
-// Probe — порт наблюдаемости шагов usecase (Domain-Oriented Observability).
-// Usecase сообщает «что происходит», а реализация в observability решает,
-// как это превратить в span'ы и метрики. Usecase не импортирует OTel/Prometheus.
+// Probe is the observability port for usecase steps (Domain-Oriented Observability).
+// The usecase reports what is happening; the implementation in observability decides
+// how to turn it into spans and metrics. The usecase does not import OTel or Prometheus.
 type Probe interface {
-	// StepStarted начинает шаг; возвращённый ctx нужно передать в вызовы внутри шага,
-	// а done — вызвать по завершении с ошибкой шага (или nil).
+	// StepStarted begins a step. Pass the returned ctx to calls within the step
+	// and call done with the step's error (or nil) when it ends.
 	StepStarted(ctx context.Context, step Step) (context.Context, func(err error))
 }
 

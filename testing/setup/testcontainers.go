@@ -1,4 +1,4 @@
-// Package setup поднимает зависимости для интеграционных тестов (testcontainers-go).
+// Package setup starts dependencies for integration tests (testcontainers-go).
 package setup
 
 import (
@@ -21,7 +21,7 @@ import (
 	"github.com/rootalex/order-observability/repo/postgres"
 )
 
-// SkipIfShort — интеграционные тесты не запускаются с `go test -short`.
+// SkipIfShort skips integration tests under `go test -short`.
 func SkipIfShort(t testing.TB) {
 	t.Helper()
 	if testing.Short() {
@@ -29,8 +29,8 @@ func SkipIfShort(t testing.TB) {
 	}
 }
 
-// StartPostgres поднимает Postgres в контейнере, накатывает migrations/*.up.sql
-// и возвращает пул соединений. Контейнер удаляется по окончании теста.
+// StartPostgres starts Postgres in a container, applies migrations/*.up.sql
+// and returns a connection pool. The container is removed when the test ends.
 func StartPostgres(ctx context.Context, t testing.TB) *sql.DB {
 	t.Helper()
 	SkipIfShort(t)
@@ -83,7 +83,7 @@ func projectRoot() string {
 	return filepath.Join(filepath.Dir(file), "..", "..")
 }
 
-// WireMock — контейнер WireMock с управлением стабами через admin API.
+// WireMock is a WireMock container with stubs managed through the admin API.
 type WireMock struct {
 	BaseURL string
 }
@@ -110,19 +110,19 @@ func StartWireMock(ctx context.Context, t testing.TB) *WireMock {
 	return &WireMock{BaseURL: endpoint}
 }
 
-// Stub регистрирует маппинг (формат WireMock JSON: request/response).
+// Stub registers a mapping (WireMock JSON format: request/response).
 func (w *WireMock) Stub(t testing.TB, mapping any) {
 	t.Helper()
 	w.admin(t, http.MethodPost, "/__admin/mappings", mapping, http.StatusCreated, nil)
 }
 
-// Reset удаляет все стабы и журнал запросов — изоляция между подтестами.
+// Reset removes all stubs and the request journal, isolating subtests.
 func (w *WireMock) Reset(t testing.TB) {
 	t.Helper()
 	w.admin(t, http.MethodPost, "/__admin/reset", nil, http.StatusOK, nil)
 }
 
-// CountRequests возвращает число запросов, совпавших с паттерном.
+// CountRequests returns the number of requests that matched the pattern.
 func (w *WireMock) CountRequests(t testing.TB, pattern any) int {
 	t.Helper()
 	var out struct {

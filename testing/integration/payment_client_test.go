@@ -20,8 +20,8 @@ import (
 
 type obj = map[string]any
 
-// chargeRequest — контракт с Payment API. Если клиент сериализует запрос иначе,
-// WireMock не найдёт стаб, ответит 404 — и тест упадёт. Мок порта такого не поймает.
+// chargeRequest is the contract with the Payment API. If the client serializes differently,
+// WireMock finds no stub, answers 404 and the test fails. A port mock cannot catch this.
 var chargeRequest = obj{
 	"method":  "POST",
 	"urlPath": "/v1/charges",

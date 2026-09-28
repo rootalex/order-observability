@@ -3,5 +3,5 @@
 coverage.*
 /bin/
 
-# Непубличные материалы: задание, переводы, пояснения, план
+# Private notes: task description, translations, explanations, plan
 /claude/

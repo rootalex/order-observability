@@ -9,6 +9,7 @@ cmd/orders/          wiring (decorators chain)
 domain/              pure domain: Order, domain events (no ctx, no infra)
 usecase/             CreateOrder interactor + ports (incl. Probe for step observability)
 transport/httpapi/   HTTP boundary: POST /orders, /metrics, /healthz
+outbox/              outbox relay: publishes domain events, continues the trace
 idgen/               order ID generator
 repo/postgres/       OrderRepository adapter
 payment/             HTTP payment client
