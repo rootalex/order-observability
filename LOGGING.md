@@ -40,7 +40,7 @@ Actual output from a local run (email was in the request; it is not in the logs)
 
 ### Levels
 
-- **ERROR** — a failure that needs attention (DB down, payment API 5xx or timeout). Always includes a stack trace.
+- **ERROR** — a failure that needs attention: the database is down, or the payment provider rejected our request (4xx other than 402, i.e. a bug or misconfiguration on our side). Always includes a stack trace. A payment timeout or 5xx is **not** logged as ERROR at the usecase boundary: the order goes to `payment_pending` (WARN below), and the failure itself is visible as an error on the `CreateOrder.payment` span and in `payment_requests_total{outcome="timeout|error"}`.
 - **WARN** — an expected business outcome: invalid order, payment declined, or payment pending confirmation (unknown charge outcome, order kept in `payment_pending`). No stack; it is not a bug. Mixing these into ERROR makes error-based alerts useless.
 - **INFO** — boundaries and business events.
 

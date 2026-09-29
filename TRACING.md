@@ -35,12 +35,12 @@ POST /orders                         otelhttp server span (parent = API GW trace
 
 - `ctx` already goes through every call because of cancellation and deadlines. OpenTelemetry for Go is built around it (`trace.SpanFromContext`). Any instrumented library (`otelsql`, `otelhttp`) picks the span up from `ctx` with no extra code.
 - **Option B** (explicit `TraceContext` parameter) duplicates what `ctx` already carries, changes every signature and interface, and does not reach third-party libraries. It also puts the concept of "trace" into the usecase API.
-- **Option C** keeps span creation out of business code. The usecase knows nothing about OTel, and tracing can be turned on, off or replaced at wiring time (`cmd/orders/main.go`):
+- **Option C** keeps span creation out of business code. The usecase knows nothing about OTel, and tracing can be turned on, off or replaced at wiring time (`app/app.go`, shared by `cmd/orders` and the E2E tests):
 
 ```go
 uc = observability.NewMetricsInteractor(uc, metrics)
-uc = observability.NewLoggingInteractor(uc, log)
-uc = observability.NewTracedInteractor(uc, tp) // outermost: logs and metrics see the span in ctx
+uc = observability.NewLoggingInteractor(uc, d.Log)
+uc = observability.NewTracedInteractor(uc, d.TracerProvider) // outermost: logs and metrics see the span in ctx
 ```
 
 A decorator only sees the start and end of the usecase. For per-step spans (`validation`, `payment`, `fulfillment`), the usecase depends on a small port that it owns (*Domain-Oriented Observability*):

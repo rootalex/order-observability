@@ -56,9 +56,10 @@ The stub matcher **is the contract**: method, path, `Content-Type`, `Idempotency
 | Subtest | Scenario |
 |---|---|
 | `success` | 200 → `payment_id` is parsed; exactly one request was made |
-| `request contract mismatch is caught` | Wrong amount → no stub matches → error |
+| `request contract mismatch is caught` | Wrong amount → no stub matches → WireMock answers 404 → `usecase.ErrPaymentRejected` |
 | `declined` | 402 → `usecase.ErrPaymentDeclined` (business outcome) |
-| `server error` | 500 → error that is **not** a decline |
+| `other 4xx is rejected: definitely not charged` | 422 → `usecase.ErrPaymentRejected`, not a decline |
+| `server error: outcome unknown` | 500 → error that is neither a decline nor a rejection: the charge may have happened, so the usecase leaves the order in `payment_pending` |
 | `malformed response` | 200 with invalid JSON → decode error |
 | `timeout` | `fixedDelayMilliseconds: 2000` with a 200 ms client timeout → `net.Error.Timeout()`, and the client returns without waiting for the slow response |
 | `propagates traceparent` | The stub only matches if the `traceparent` header carries the caller's trace ID |
