@@ -85,7 +85,7 @@ The stub matcher **is the contract**: method, path, `Content-Type`, `Idempotency
 
 ## Verifying that the tests can fail
 
-A test that passed on the first run proves nothing until it has been seen failing. Two realistic bugs were introduced by hand:
+A test that passed on the first run proves nothing until it has been seen failing. Four realistic bugs were introduced by hand:
 
 | Bug | Unit test with fake payment | Integration test |
 |---|---|---|

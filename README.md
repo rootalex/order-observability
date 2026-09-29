@@ -1,5 +1,7 @@
 # Order Service: Observability & Testing
 
+[![CI](https://github.com/rootalex/order-observability/actions/workflows/ci.yml/badge.svg)](https://github.com/rootalex/order-observability/actions/workflows/ci.yml)
+
 Solution for the Senior Backend assessment (Task 3).
 
 ## Layout
@@ -44,6 +46,8 @@ make test-integration  # Postgres + WireMock via testcontainers — requires Doc
 make test              # both
 go test -short ./...   # integration tests are skipped with -short
 ```
+
+CI (`.github/workflows/ci.yml`) runs the same targets on every push and pull request: `go mod tidy` check, `make lint`, `make build`, `make test-unit`, and `make test-integration` with testcontainers on the GitHub runner's Docker.
 
 ## Documents
 - [TRACING.md](TRACING.md)
