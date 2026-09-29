@@ -168,6 +168,18 @@ func TestOrderRepo_Integration(t *testing.T) {
 			assert.Zero(t, n, "order row must be rolled back together with items")
 		})
 
+		t.Run("payment_pending is a valid status (migration 003)", func(t *testing.T) {
+			clk := clock.NewFake(baseTime)
+			o := newOrder(t, clk, "ord-pending")
+			require.NoError(t, repo.Create(ctx, o, o.PullEvents()))
+			require.NoError(t, o.MarkPaymentPending(clk.Now()))
+
+			require.NoError(t, repo.Update(ctx, o, o.PullEvents()))
+			got, err := repo.Get(ctx, "ord-pending")
+			require.NoError(t, err)
+			assert.Equal(t, domain.StatusPaymentPending, got.Status)
+		})
+
 		t.Run("unknown status is rejected", func(t *testing.T) {
 			o := domain.Rehydrate("ord-bad-status", "c-1", domain.TierFree,
 				[]domain.Item{{ProductID: "p-1", Quantity: 1, PriceCents: 100}},

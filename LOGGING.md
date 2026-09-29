@@ -41,7 +41,7 @@ Actual output from a local run (email was in the request; it is not in the logs)
 ### Levels
 
 - **ERROR** — a failure that needs attention (DB down, payment API 5xx or timeout). Always includes a stack trace.
-- **WARN** — an expected business rejection (invalid order, payment declined). No stack; it is not a bug. Mixing these into ERROR makes error-based alerts useless.
+- **WARN** — an expected business outcome: invalid order, payment declined, or payment pending confirmation (unknown charge outcome, order kept in `payment_pending`). No stack; it is not a bug. Mixing these into ERROR makes error-based alerts useless.
 - **INFO** — boundaries and business events.
 
 ## 3. How do you avoid logging sensitive data?

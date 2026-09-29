@@ -7,8 +7,20 @@ import (
 	"github.com/rootalex/order-observability/domain"
 )
 
+// Payment outcomes a PaymentGateway reports. Anything else it returns (timeout,
+// network error, 5xx, unreadable response) means the outcome is unknown: the
+// money may have been taken.
 var (
-	ErrPaymentDeclined    = errors.New("payment declined")
+	// ErrPaymentDeclined: the provider processed the charge and refused it (e.g. insufficient funds).
+	ErrPaymentDeclined = errors.New("payment declined")
+	// ErrPaymentRejected: the provider refused the request itself (4xx); nothing was charged.
+	ErrPaymentRejected = errors.New("payment request rejected")
+)
+
+var (
+	// ErrPaymentPending is returned by CreateOrder when the charge outcome is unknown
+	// and the order is left in payment_pending for reconciliation.
+	ErrPaymentPending     = errors.New("payment pending confirmation")
 	ErrOrderNotFound      = errors.New("order not found")
 	ErrOrderAlreadyExists = errors.New("order already exists")
 )

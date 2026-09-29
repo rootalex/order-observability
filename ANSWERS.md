@@ -36,7 +36,7 @@ Neither replaces the other. The mock test cannot see the wire format; the WireMo
 
 | # | What happened | How it looks |
 |---|---|---|
-| a | The payment request **timed out on our side**, but the provider completed the charge. We treat the timeout as a failure and mark the order `failed`. | This is the current behavior of `CreateOrder` (`payment_error` → `Fail`), and the most likely cause. |
+| a | The payment request **timed out on our side**, but the provider completed the charge. The service treats the timeout as a failure and marks the order `failed`. | The most likely cause. The first version of this service did exactly that; it is now fixed (see *Fixing the root cause*). |
 | b | Charge succeeded, then **saving the status failed** (DB error or timeout). The order stays `pending`; the client got a 500 and shows "failed". | `update order` error right after a successful charge. |
 | c | Client **retry** after (a) or (b) creates a second order, or a second charge if the idempotency key is not stable. | Two orders or payments for one checkout. |
 
@@ -57,12 +57,13 @@ Neither replaces the other. The mock test cannot see the wire format; the WireMo
 
 ### Metrics that would indicate it
 
-Already available:
+Implemented:
+- `payment_requests_total{outcome="success|declined|rejected|timeout|error"}` — timeouts specifically (case a). Counted by the `MetricsPaymentGateway` decorator around the payment port.
+- `orders_created_total{status="pending"}` — orders left in `payment_pending`, i.e. charges with an unknown outcome.
 - `order_processing_duration_seconds{step="payment"}` — p99 approaching the client timeout.
 - `orders_created_total{status="failure"}` — failure rate going up.
 
 Needed in addition:
-- `payment_requests_total{outcome="success|declined|error|timeout"}` — timeouts specifically (case a).
 - `orders_status_update_failures_total{after="charge"}` — failed saves after a successful charge (case b).
 - `orders_stuck_pending` — orders `pending` for longer than N minutes (gauge from the DB, see METRICS.md).
 - `payment_reconciliation_mismatches_total` — from the reconciliation job below.
@@ -81,7 +82,17 @@ Alerts are based on symptoms that cost money, not on single error log lines. Exp
 
 ### Fixing the root cause
 
-- A **timeout is "unknown", not "failed"**. Mark the order `payment_pending` and resolve it by querying the provider with the idempotency key, or wait for its webhook.
+- **Implemented: a timeout is "unknown", not "failed".** The payment adapter separates definitive answers from unknown ones:
+
+  | Provider answer | Meaning | Order status | HTTP |
+  |---|---|---|---|
+  | 200 | charged | `paid` | 201 |
+  | 402 | declined by the bank | `failed` (`payment_declined`) | 402 |
+  | other 4xx | request refused, **not** charged | `failed` (`payment_rejected`) | 500 |
+  | timeout, network error, 5xx, unreadable response | **unknown**: may have been charged | `payment_pending` | 202 |
+
+  `payment_pending` is a new domain status (`Order.MarkPaymentPending`, migration `003`); from it, reconciliation can move the order to `paid` or `failed`. Tested at every level: `TestCreateOrder_PaymentOutcomes` (usecase), `TestPaymentClient_ExternalAPI` (4xx vs 5xx against WireMock), and `TestCreateOrder_E2E` (a delayed WireMock response → 202, `payment_pending` in the database, `payment_requests_total{outcome="timeout"}`). Reverting the usecase to "timeout → failed" fails both the unit and the E2E test.
+- Still to do: the **reconciliation** itself — query the provider by the idempotency key, or wait for its webhook, and move `payment_pending` orders to `paid` or `failed`.
 - A stable **idempotency key** (the order id — already sent in the `Idempotency-Key` header) makes retries safe.
 - Persist "payment requested" before calling the provider, and drive the rest through the **outbox / saga**, so a crash between the charge and the status update can be recovered.
 - A **reconciliation job** that compares provider charges with order statuses and fixes or flags mismatches.

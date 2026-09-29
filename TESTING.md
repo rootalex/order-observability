@@ -27,11 +27,13 @@ Proportions: many unit tests (milliseconds), a focused set of integration tests 
 | `testing/integration/order_repo_test.go` | Integration (Postgres container) | ~3 s |
 | `testing/integration/payment_client_test.go` | Integration (WireMock container) | ~3 s |
 | `testing/integration/outbox_relay_test.go` | Integration (Postgres container, fake broker) | ~3 s |
+| `testing/e2e/create_order_test.go` | E2E (real wiring from `app`, Postgres + WireMock containers, fake broker) | ~7 s |
 
 ```bash
 make test-unit          # no Docker
 make test-integration   # requires Docker
-go test -short ./...    # integration tests skip themselves with -short
+make test-e2e           # requires Docker
+go test -short ./...    # integration and E2E tests skip themselves with -short
 ```
 
 ## 1. Repository integration test (testcontainers)
@@ -85,7 +87,7 @@ The stub matcher **is the contract**: method, path, `Content-Type`, `Idempotency
 
 ## Verifying that the tests can fail
 
-A test that passed on the first run proves nothing until it has been seen failing. Four realistic bugs were introduced by hand:
+A test that passed on the first run proves nothing until it has been seen failing. Five realistic bugs were introduced by hand:
 
 | Bug | Unit test with fake payment | Integration test |
 |---|---|---|
@@ -93,6 +95,7 @@ A test that passed on the first run proves nothing until it has been seen failin
 | `UpdateMut` also writes `customer_id` | not covered | **fails**: generated SQL differs, and the concurrent `customer_id` change is overwritten |
 | Relay without `SKIP LOCKED` | not covered | **fails**: relay B blocks on A's rows (`relay B must not wait for rows locked by A`) |
 | Relay continues the batch after a failed publish | not covered | **fails**: event 3 is published ahead of event 2 |
+| Usecase marks a payment timeout as `failed` again (the Q3 bug) | **fails** (`TestCreateOrder_PaymentOutcomes`) | **fails**: the E2E timeout scenario expects 202 and `payment_pending` |
 
 All bugs were reverted after the check. This is exactly the gap from the over-mocking example.
 
@@ -100,7 +103,19 @@ All bugs were reverted after the check. This is exactly the gap from the over-mo
 
 `clock/clock.go`: the `Clock` interface with `Real` (UTC) and `Fake` (`NewFake(t)`, `Advance(d)`). The domain never calls `time.Now()`: time comes in as a parameter (`NewOrder(..., now)`, `MarkPaid(now)`), and the usecase gets it from the injected clock. In tests, all times are exact and can be compared with `assert.Equal`. The integration tests also use a fixed time **with nanoseconds** on purpose, and assert against `Truncate(time.Microsecond)`, because that is what Postgres stores. See ANSWERS.md Q5.
 
+## 5. E2E test
+
+`testing/e2e/create_order_test.go` drives the service **through its public HTTP API**, with the same wiring as production: `app.New` builds the adapters, usecase, decorator chain and outbox relay for both `cmd/orders` and the test. Postgres is real, the payment provider is WireMock (the only third party), the broker is a recording fake behind `outbox.Publisher`, and spans go to an in-memory recorder.
+
+| Scenario | Asserts |
+|---|---|
+| Paid order | 201 · `paid` in the database · outbox `order.created, order.paid` · exactly one charge with `Idempotency-Key` = order id · the relay publishes both events with the caller's trace ID · **one trace** containing the server span, `CreateOrder` and its three steps, SQL spans, the payment client span and both `outbox.publish` spans · `/metrics` scraped over HTTP shows the success series · logs carry the trace ID and no email |
+| Payment timeout | WireMock delays past the client timeout → 202 · `payment_pending` in the database, no fail reason · outbox `order.created, order.payment_pending` · `payment_requests_total{outcome="timeout"}` and `orders_created_total{status="pending"}` |
+| Declined | 402 · `failed` with `payment_declined` · `payment_requests_total{outcome="declined"}` |
+| Invalid order | 400 · no rows written · the payment provider is never called |
+
+Writing this test found a real inconsistency: otelhttp and otelsql use the **global** TracerProvider, not the one passed to `app.Deps`. In production both are the same (`cmd/orders` registers the provider globally); the test now does the same, and `app.Deps` documents the requirement.
+
 ## Not covered (yet)
 
-- **E2E test** of `POST /orders` against the `docker-compose` environment. It was verified manually: 201, rows and outbox in Postgres, full trace in Jaeger including `outbox.publish` spans. It is not automated.
 - **A real broker adapter.** The relay publishes through the `Publisher` port; locally `LogPublisher` logs the messages. A Kafka/NATS adapter would get its own integration test with a broker container, like the WireMock test for the payment client.

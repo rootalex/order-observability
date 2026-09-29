@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -97,11 +98,32 @@ func TestCreateOrder_PaymentOutcomes(t *testing.T) {
 	tests := []struct {
 		name       string
 		payErr     error
+		wantStatus domain.Status
+		wantEvent  string
 		wantReason string
 		wantIs     error
 	}{
-		{name: "declined", payErr: ErrPaymentDeclined, wantReason: "payment_declined", wantIs: ErrPaymentDeclined},
-		{name: "gateway error", payErr: errors.New("timeout"), wantReason: "payment_error"},
+		{
+			name:   "declined by the bank",
+			payErr: ErrPaymentDeclined, wantIs: ErrPaymentDeclined,
+			wantStatus: domain.StatusFailed, wantEvent: "order.failed", wantReason: "payment_declined",
+		},
+		{
+			name:   "request rejected by the provider (4xx, not charged)",
+			payErr: fmt.Errorf("%w: status 400", ErrPaymentRejected), wantIs: ErrPaymentRejected,
+			wantStatus: domain.StatusFailed, wantEvent: "order.failed", wantReason: "payment_rejected",
+		},
+		{
+			// Q3: the provider may have charged; failing the order would be the bug.
+			name:   "timeout: outcome unknown",
+			payErr: context.DeadlineExceeded, wantIs: ErrPaymentPending,
+			wantStatus: domain.StatusPaymentPending, wantEvent: "order.payment_pending",
+		},
+		{
+			name:   "5xx or network error: outcome unknown",
+			payErr: errors.New("payment api: unexpected status 503"), wantIs: ErrPaymentPending,
+			wantStatus: domain.StatusPaymentPending, wantEvent: "order.payment_pending",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -110,17 +132,17 @@ func TestCreateOrder_PaymentOutcomes(t *testing.T) {
 
 			resp, err := uc.Execute(context.Background(), validRequest())
 
-			require.Error(t, err)
-			if tt.wantIs != nil {
-				assert.ErrorIs(t, err, tt.wantIs)
-			}
-			require.NotNil(t, resp, "caller needs the order id and status even on payment failure")
-			assert.Equal(t, domain.StatusFailed, resp.Status)
-			assert.Equal(t, []savedOrder{{status: domain.StatusFailed, events: []string{"order.failed"}}}, repo.updated)
+			assert.ErrorIs(t, err, tt.wantIs)
+			assert.ErrorIs(t, err, tt.payErr, "the original cause is kept for logs and traces")
+			require.NotNil(t, resp, "caller needs the order id and status even when the payment did not succeed")
+			assert.Equal(t, tt.wantStatus, resp.Status)
+			assert.Equal(t, []savedOrder{{status: tt.wantStatus, events: []string{tt.wantEvent}}}, repo.updated)
 
-			failed, ok := resp.Events[len(resp.Events)-1].(domain.OrderFailed)
-			require.True(t, ok)
-			assert.Equal(t, tt.wantReason, failed.Reason)
+			if tt.wantReason != "" {
+				failed, ok := resp.Events[len(resp.Events)-1].(domain.OrderFailed)
+				require.True(t, ok)
+				assert.Equal(t, tt.wantReason, failed.Reason)
+			}
 		})
 	}
 }

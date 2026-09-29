@@ -17,6 +17,11 @@ type OrderPaid struct {
 	At      time.Time `json:"occurred_at"`
 }
 
+type OrderPaymentPending struct {
+	OrderID OrderID   `json:"order_id"`
+	At      time.Time `json:"occurred_at"`
+}
+
 type OrderCompleted struct {
 	OrderID OrderID   `json:"order_id"`
 	At      time.Time `json:"occurred_at"`
@@ -28,11 +33,13 @@ type OrderFailed struct {
 	At      time.Time `json:"occurred_at"`
 }
 
-func (e OrderCreated) Name() string            { return "order.created" }
-func (e OrderCreated) OccurredAt() time.Time   { return e.At }
-func (e OrderPaid) Name() string               { return "order.paid" }
-func (e OrderPaid) OccurredAt() time.Time      { return e.At }
-func (e OrderCompleted) Name() string          { return "order.completed" }
-func (e OrderCompleted) OccurredAt() time.Time { return e.At }
-func (e OrderFailed) Name() string             { return "order.failed" }
-func (e OrderFailed) OccurredAt() time.Time    { return e.At }
+func (e OrderCreated) Name() string                 { return "order.created" }
+func (e OrderCreated) OccurredAt() time.Time        { return e.At }
+func (e OrderPaid) Name() string                    { return "order.paid" }
+func (e OrderPaid) OccurredAt() time.Time           { return e.At }
+func (e OrderPaymentPending) Name() string          { return "order.payment_pending" }
+func (e OrderPaymentPending) OccurredAt() time.Time { return e.At }
+func (e OrderCompleted) Name() string               { return "order.completed" }
+func (e OrderCompleted) OccurredAt() time.Time      { return e.At }
+func (e OrderFailed) Name() string                  { return "order.failed" }
+func (e OrderFailed) OccurredAt() time.Time         { return e.At }

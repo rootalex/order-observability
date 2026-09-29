@@ -77,7 +77,8 @@ func RedactPII(_ []string, a slog.Attr) slog.Attr {
 func isExpected(err error) bool {
 	return errors.Is(err, domain.ErrEmptyOrder) ||
 		errors.Is(err, domain.ErrInvalidQuantity) ||
-		errors.Is(err, usecase.ErrPaymentDeclined)
+		errors.Is(err, usecase.ErrPaymentDeclined) ||
+		errors.Is(err, usecase.ErrPaymentPending)
 }
 
 // stackError keeps the stack of the point where the error originated (usually an adapter).
@@ -171,6 +172,10 @@ func (l *LoggingInteractor) Execute(ctx context.Context, req *usecase.CreateOrde
 		l.logDomainEvents(ctx, resp)
 	}
 	switch {
+	case errors.Is(err, usecase.ErrPaymentPending):
+		// Not a rejection: the order exists and waits for the charge outcome to be reconciled.
+		l.log.WarnContext(ctx, "create order pending payment confirmation", append(attrs, slog.String("reason", err.Error()))...)
+		return resp, err
 	case err != nil && isExpected(err):
 		// An expected business outcome (invalid order, declined payment) is not a failure: WARN, no stack.
 		l.log.WarnContext(ctx, "create order rejected", append(attrs, slog.String("reason", err.Error()))...)

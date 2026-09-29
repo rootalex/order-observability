@@ -19,6 +19,9 @@ const (
 	StatusPaid      Status = "paid"
 	StatusCompleted Status = "completed"
 	StatusFailed    Status = "failed"
+	// StatusPaymentPending means the charge outcome is unknown (e.g. the payment
+	// provider timed out). The order is neither paid nor failed until reconciled.
+	StatusPaymentPending Status = "payment_pending"
 )
 
 const (
@@ -109,14 +112,29 @@ func (o *Order) TotalCents() int64 {
 	return total
 }
 
+// MarkPaid is allowed from pending, and from payment_pending once reconciliation
+// confirms the charge.
 func (o *Order) MarkPaid(now time.Time) error {
-	if o.Status != StatusPending {
+	if o.Status != StatusPending && o.Status != StatusPaymentPending {
 		return ErrInvalidTransition
 	}
 	o.Status = StatusPaid
 	o.UpdatedAt = now
 	o.touch(FieldStatus, FieldUpdatedAt)
 	o.record(OrderPaid{OrderID: o.ID, At: now})
+	return nil
+}
+
+// MarkPaymentPending records that the charge was attempted but its outcome is
+// unknown. The money may or may not have been taken, so the order must not be failed.
+func (o *Order) MarkPaymentPending(now time.Time) error {
+	if o.Status != StatusPending {
+		return ErrInvalidTransition
+	}
+	o.Status = StatusPaymentPending
+	o.UpdatedAt = now
+	o.touch(FieldStatus, FieldUpdatedAt)
+	o.record(OrderPaymentPending{OrderID: o.ID, At: now})
 	return nil
 }
 

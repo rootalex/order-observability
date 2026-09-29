@@ -50,7 +50,6 @@ func (uc *createOrder) Execute(ctx context.Context, req *CreateOrderRequest) (*C
 		return nil, err
 	}
 
-	// TODO: a timeout here means "unknown", not "failed" (see ANSWERS.md Q3): mark payment_pending and reconcile.
 	paymentID, chargeErr := uc.charge(ctx, order)
 
 	finalEvents, err := uc.finalize(ctx, order, chargeErr)
@@ -64,10 +63,14 @@ func (uc *createOrder) Execute(ctx context.Context, req *CreateOrderRequest) (*C
 		PaymentID: paymentID,
 		Events:    append(events, finalEvents...),
 	}
-	if chargeErr != nil {
+	switch {
+	case chargeErr == nil:
+		return resp, nil
+	case order.Status == domain.StatusPaymentPending:
+		return resp, fmt.Errorf("%w: %w", ErrPaymentPending, chargeErr)
+	default:
 		return resp, fmt.Errorf("charge: %w", chargeErr)
 	}
-	return resp, nil
 }
 
 func (uc *createOrder) validate(ctx context.Context, req *CreateOrderRequest) (order *domain.Order, events []domain.Event, err error) {
@@ -105,12 +108,18 @@ func (uc *createOrder) finalize(ctx context.Context, order *domain.Order, charge
 
 	now := uc.clock.Now()
 	switch {
+	case chargeErr == nil:
+		err = order.MarkPaid(now)
 	case errors.Is(chargeErr, ErrPaymentDeclined):
 		err = order.Fail("payment_declined", now)
-	case chargeErr != nil:
-		err = order.Fail("payment_error", now)
+	case errors.Is(chargeErr, ErrPaymentRejected):
+		err = order.Fail("payment_rejected", now)
 	default:
-		err = order.MarkPaid(now)
+		// Timeout, network error, 5xx: the provider may have charged the customer.
+		// Failing the order here is exactly the "charged but shows as failed" bug
+		// (ANSWERS.md Q3). Leave it pending; reconciliation resolves it by the
+		// idempotency key, which is the order id.
+		err = order.MarkPaymentPending(now)
 	}
 	if err != nil {
 		return nil, err

@@ -15,14 +15,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"go.opentelemetry.io/otel"
 
+	"github.com/rootalex/order-observability/app"
 	"github.com/rootalex/order-observability/clock"
-	"github.com/rootalex/order-observability/idgen"
 	"github.com/rootalex/order-observability/observability"
 	"github.com/rootalex/order-observability/outbox"
-	"github.com/rootalex/order-observability/payment"
 	"github.com/rootalex/order-observability/repo/postgres"
-	"github.com/rootalex/order-observability/transport/httpapi"
-	"github.com/rootalex/order-observability/usecase"
 )
 
 const serviceName = "order-service"
@@ -55,11 +52,9 @@ func run() error {
 		defer cancel()
 		_ = shutdownTracing(sctx)
 	}()
-	tp := otel.GetTracerProvider()
 
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
-	metrics := observability.NewMetrics(reg)
 
 	db, err := postgres.Open(ctx, env("DATABASE_URL", "postgres://orders:orders@localhost:55432/orders?sslmode=disable"))
 	if err != nil {
@@ -67,25 +62,23 @@ func run() error {
 	}
 	defer db.Close()
 
-	repo := postgres.NewOrderRepo(db)
-	pay := payment.NewClient(env("PAYMENT_URL", "http://localhost:8081"), 5*time.Second)
-
-	var uc usecase.CreateOrderInteractor = usecase.NewCreateOrder(
-		repo, pay, idgen.Random{}, clock.Real{}, observability.NewProbe(tp, metrics),
-	)
-	// Tracing is outermost so that logging and metrics see the span in ctx (trace_id, exemplars).
-	uc = observability.NewMetricsInteractor(uc, metrics)
-	uc = observability.NewLoggingInteractor(uc, log)
-	uc = observability.NewTracedInteractor(uc, tp)
-
-	// Outbox relay: publishes domain events written by the repository.
-	// LogPublisher stands in for a real broker adapter.
-	relay := outbox.NewRelay(db, outbox.LogPublisher{Log: log}, clock.Real{}, tp, log, 100)
-	go relay.Run(ctx, time.Second)
+	application := app.New(app.Deps{
+		DB:             db,
+		PaymentURL:     env("PAYMENT_URL", "http://localhost:8081"),
+		PaymentTimeout: 5 * time.Second,
+		Log:            log,
+		TracerProvider: otel.GetTracerProvider(),
+		Registry:       reg,
+		Clock:          clock.Real{},
+		// LogPublisher stands in for a real broker adapter.
+		Publisher:      outbox.LogPublisher{Log: log},
+		RelayBatchSize: 100,
+	})
+	go application.Relay.Run(ctx, time.Second)
 
 	srv := &http.Server{
 		Addr:              env("HTTP_ADDR", ":8080"),
-		Handler:           httpapi.NewRouter(uc, log, observability.MetricsHandler(reg)),
+		Handler:           application.Handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

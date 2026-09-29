@@ -1,7 +1,8 @@
 GO           ?= go
 PKGS         := $(shell $(GO) list ./...)
-UNIT_PKGS    := $(filter-out %/testing/integration,$(PKGS))
+UNIT_PKGS    := $(filter-out %/testing/integration %/testing/e2e,$(PKGS))
 INTEGRATION  := ./testing/integration/...
+E2E          := ./testing/e2e/...
 BIN          := bin/orders
 COMPOSE      ?= docker compose
 
@@ -24,7 +25,7 @@ run: ## Run the order service (start env first: make up)
 	$(GO) run ./cmd/orders
 
 .PHONY: test
-test: test-unit test-integration ## Run all tests
+test: test-unit test-integration test-e2e ## Run all tests
 
 .PHONY: test-unit
 test-unit: ## Run unit tests (no Docker)
@@ -33,6 +34,10 @@ test-unit: ## Run unit tests (no Docker)
 .PHONY: test-integration
 test-integration: ## Run integration tests (requires Docker)
 	$(GO) test -race -count=1 -v $(INTEGRATION)
+
+.PHONY: test-e2e
+test-e2e: ## Run E2E tests through the HTTP API (requires Docker)
+	$(GO) test -race -count=1 -v $(E2E)
 
 .PHONY: cover
 cover: ## Run all tests with coverage report

@@ -12,6 +12,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -197,5 +198,51 @@ func TestExpectedErrors_WarnWithoutStackAndNoSpanError(t *testing.T) {
 	}
 	if s := rec.Ended()[0]; s.Status().Code == codes.Error {
 		t.Error("expected business error must not mark span as Error")
+	}
+}
+
+func TestMetricsInteractor_PendingIsNotFailure(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := NewMetrics(reg)
+	inner := fakeInteractor{err: fmt.Errorf("%w: timeout", usecase.ErrPaymentPending)}
+
+	_, _ = NewMetricsInteractor(inner, m).Execute(context.Background(), &usecase.CreateOrderRequest{Tier: domain.TierFree})
+
+	assert.Equal(t, 1.0, testutil.ToFloat64(m.ordersCreated.WithLabelValues("pending", "free")))
+	assert.Equal(t, 0.0, testutil.ToFloat64(m.ordersCreated.WithLabelValues("failure", "free")))
+}
+
+type fakeGateway struct{ err error }
+
+func (g fakeGateway) Charge(context.Context, usecase.ChargeRequest) (usecase.ChargeResult, error) {
+	return usecase.ChargeResult{}, g.err
+}
+
+type timeoutErr struct{}
+
+func (timeoutErr) Error() string   { return "i/o timeout" }
+func (timeoutErr) Timeout() bool   { return true }
+func (timeoutErr) Temporary() bool { return true }
+
+func TestMetricsPaymentGateway_Outcomes(t *testing.T) {
+	tests := []struct {
+		err  error
+		want string
+	}{
+		{nil, "success"},
+		{usecase.ErrPaymentDeclined, "declined"},
+		{fmt.Errorf("%w: status 422", usecase.ErrPaymentRejected), "rejected"},
+		{fmt.Errorf("payment request: %w", context.DeadlineExceeded), "timeout"},
+		{fmt.Errorf("payment request: %w", timeoutErr{}), "timeout"}, // http.Client.Timeout
+		{errors.New("payment api: unexpected status 503"), "error"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			m := NewMetrics(prometheus.NewRegistry())
+			_, err := NewMetricsPaymentGateway(fakeGateway{err: tt.err}, m).Charge(context.Background(), usecase.ChargeRequest{})
+
+			assert.Equal(t, tt.err, err, "decorator must return the inner error unchanged")
+			assert.Equal(t, 1.0, testutil.ToFloat64(m.paymentRequests.WithLabelValues(tt.want)))
+		})
 	}
 }

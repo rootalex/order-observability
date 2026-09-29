@@ -7,7 +7,8 @@ Solution for the Senior Backend assessment (Task 3).
 ## Layout
 
 ```
-cmd/orders/          wiring (decorators chain)
+cmd/orders/          process: config, logger, tracing, HTTP server, graceful shutdown
+app/                 wiring shared by cmd/orders and the E2E tests (decorator chain, relay)
 domain/              pure domain: Order, domain events (no ctx, no infra)
 usecase/             CreateOrder interactor + ports (incl. Probe for step observability)
 transport/httpapi/   HTTP boundary: POST /orders, /metrics, /healthz
@@ -18,6 +19,7 @@ payment/             HTTP payment client
 clock/               Clock abstraction (Real / Fake)
 observability/       tracing, logging, metrics decorators
 testing/integration/ integration tests (testcontainers, WireMock)
+testing/e2e/         E2E tests through the HTTP API (real wiring, testcontainers)
 testing/setup/       container helpers
 migrations/          SQL schema
 ```
@@ -43,11 +45,12 @@ make down   # stop (make reset — also drop DB volume)
 ```bash
 make test-unit         # domain, usecase (fakes + FakeClock), observability — no Docker
 make test-integration  # Postgres + WireMock via testcontainers — requires Docker
-make test              # both
-go test -short ./...   # integration tests are skipped with -short
+make test-e2e          # full request through the HTTP API — requires Docker
+make test              # all of the above
+go test -short ./...   # integration and E2E tests are skipped with -short
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same targets on every push and pull request: `go mod tidy` check, `make lint`, `make build`, `make test-unit`, and `make test-integration` with testcontainers on the GitHub runner's Docker.
+CI (`.github/workflows/ci.yml`) runs the same targets on every push and pull request: `go mod tidy` check, `make lint`, `make build`, `make test-unit`, `make test-integration` and `make test-e2e` with testcontainers on the GitHub runner's Docker.
 
 ## Documents
 - [TRACING.md](TRACING.md)

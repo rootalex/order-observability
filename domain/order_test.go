@@ -36,6 +36,31 @@ func TestOrder_Transitions(t *testing.T) {
 		assert.Equal(t, later, o.UpdatedAt)
 	})
 
+	t.Run("pending -> payment_pending -> paid after reconciliation", func(t *testing.T) {
+		o := newTestOrder(t)
+		require.NoError(t, o.MarkPaymentPending(later))
+		assert.Equal(t, StatusPaymentPending, o.Status)
+		require.NoError(t, o.MarkPaid(later))
+		assert.Equal(t, StatusPaid, o.Status)
+
+		events := o.PullEvents()
+		assert.Equal(t, "order.payment_pending", events[1].Name())
+		assert.Equal(t, "order.paid", events[2].Name())
+	})
+
+	t.Run("payment_pending -> failed when reconciliation finds no charge", func(t *testing.T) {
+		o := newTestOrder(t)
+		require.NoError(t, o.MarkPaymentPending(later))
+		require.NoError(t, o.Fail("payment_not_found", later))
+		assert.Equal(t, StatusFailed, o.Status)
+	})
+
+	t.Run("paid order cannot go back to payment_pending", func(t *testing.T) {
+		o := newTestOrder(t)
+		require.NoError(t, o.MarkPaid(later))
+		assert.ErrorIs(t, o.MarkPaymentPending(later), ErrInvalidTransition)
+	})
+
 	t.Run("cannot complete unpaid order", func(t *testing.T) {
 		assert.ErrorIs(t, newTestOrder(t).Complete(later), ErrInvalidTransition)
 	})

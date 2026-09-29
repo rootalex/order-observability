@@ -4,13 +4,14 @@
 
 | Metric | Type | Labels (bounded) | Where |
 |---|---|---|---|
-| `orders_created_total` | Counter | `status` = success\|failure, `customer_tier` = free\|premium\|unknown | `MetricsInteractor` (usecase decorator) |
+| `orders_created_total` | Counter | `status` = success\|failure\|pending, `customer_tier` = free\|premium\|unknown | `MetricsInteractor` (usecase decorator). `pending` = charge outcome unknown, order left in `payment_pending` |
 | `order_processing_duration_seconds` | Histogram | `step` = validation\|payment\|fulfillment | `observability.Probe` (usecase step port) |
 | `orders_pending_count` | Gauge | — | `MetricsInteractor`: orders currently in processing |
+| `payment_requests_total` | Counter | `outcome` = success\|declined\|rejected\|timeout\|error | `MetricsPaymentGateway` (decorator around the `PaymentGateway` port) |
 
 Plus Go runtime and process collectors. Everything is exposed at `GET /metrics` in OpenMetrics format, which is required for exemplars.
 
-Implementation: `observability/metrics.go`, `observability/probe.go`.
+Implementation: `observability/metrics.go`, `observability/probe.go`. The E2E test (`testing/e2e`) scrapes `/metrics` over HTTP and asserts these series after real requests.
 
 ## 1. Where do you instrument?
 

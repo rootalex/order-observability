@@ -78,6 +78,9 @@ func (h *createOrderHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
 	case errors.Is(err, usecase.ErrPaymentDeclined) && resp != nil:
 		writeJSON(w, http.StatusPaymentRequired, toResponse(resp))
+	case errors.Is(err, usecase.ErrPaymentPending) && resp != nil:
+		// The order exists, the charge outcome is being confirmed: accepted, not failed.
+		writeJSON(w, http.StatusAccepted, toResponse(resp))
 	case err != nil:
 		// Error details go to logs and traces, never to the client.
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "internal error"})

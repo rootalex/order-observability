@@ -37,7 +37,7 @@ jobs:
         run: make test-unit
 
   integration:
-    name: Integration tests (testcontainers)
+    name: Integration and E2E tests (testcontainers)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -49,3 +49,6 @@ jobs:
       # testcontainers starts Postgres and WireMock from the tests themselves.
       - name: Integration tests
         run: make test-integration
+
+      - name: E2E tests
+        run: make test-e2e

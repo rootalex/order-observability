@@ -56,6 +56,7 @@ func do(t *testing.T, h http.Handler, method, path, body string, header http.Hea
 func TestCreateOrder_StatusMapping(t *testing.T) {
 	paidResp := &usecase.CreateOrderResponse{OrderID: "ord-1", Status: domain.StatusPaid, PaymentID: "pay-1"}
 	failedResp := &usecase.CreateOrderResponse{OrderID: "ord-1", Status: domain.StatusFailed}
+	pendingResp := &usecase.CreateOrderResponse{OrderID: "ord-1", Status: domain.StatusPaymentPending}
 
 	tests := []struct {
 		name     string
@@ -91,6 +92,13 @@ func TestCreateOrder_StatusMapping(t *testing.T) {
 			uc:       &fakeInteractor{resp: failedResp, err: fmt.Errorf("charge: %w", usecase.ErrPaymentDeclined)},
 			wantCode: http.StatusPaymentRequired,
 			wantBody: `{"order_id":"ord-1","status":"failed"}`,
+		},
+		{
+			name:     "payment outcome unknown: accepted, not failed",
+			body:     validBody,
+			uc:       &fakeInteractor{resp: pendingResp, err: fmt.Errorf("%w: timeout", usecase.ErrPaymentPending)},
+			wantCode: http.StatusAccepted,
+			wantBody: `{"order_id":"ord-1","status":"payment_pending"}`,
 		},
 		{
 			name:     "internal error does not leak details",

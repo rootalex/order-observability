@@ -61,9 +61,14 @@ func (c *Client) Charge(ctx context.Context, req usecase.ChargeRequest) (usecase
 	}
 	defer resp.Body.Close()
 
+	// 402 and other 4xx are definitive: the charge did not happen. 5xx, timeouts,
+	// network errors and unreadable responses are not: the usecase treats them as
+	// an unknown outcome.
 	switch {
 	case resp.StatusCode == http.StatusPaymentRequired:
 		return usecase.ChargeResult{}, usecase.ErrPaymentDeclined
+	case resp.StatusCode >= 400 && resp.StatusCode < 500:
+		return usecase.ChargeResult{}, observability.WithStack(fmt.Errorf("%w: status %d", usecase.ErrPaymentRejected, resp.StatusCode))
 	case resp.StatusCode != http.StatusOK:
 		return usecase.ChargeResult{}, observability.WithStack(fmt.Errorf("payment api: unexpected status %d", resp.StatusCode))
 	}

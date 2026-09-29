@@ -62,7 +62,8 @@ func TestPaymentClient_ExternalAPI(t *testing.T) {
 		wrong := req
 		wrong.AmountCents = 1499
 		_, err := client.Charge(ctx, wrong)
-		assert.ErrorContains(t, err, "unexpected status 404")
+		assert.ErrorIs(t, err, usecase.ErrPaymentRejected, "no stub matched: WireMock answers 404")
+		assert.ErrorContains(t, err, "status 404")
 	})
 
 	t.Run("declined", func(t *testing.T) {
@@ -72,12 +73,21 @@ func TestPaymentClient_ExternalAPI(t *testing.T) {
 		assert.ErrorIs(t, err, usecase.ErrPaymentDeclined)
 	})
 
-	t.Run("server error", func(t *testing.T) {
+	t.Run("other 4xx is rejected: definitely not charged", func(t *testing.T) {
+		stub(t, chargeRequest, obj{"status": 422, "jsonBody": obj{"error": "currency not supported"}})
+
+		_, err := client.Charge(ctx, req)
+		assert.ErrorIs(t, err, usecase.ErrPaymentRejected)
+		assert.NotErrorIs(t, err, usecase.ErrPaymentDeclined)
+	})
+
+	t.Run("server error: outcome unknown", func(t *testing.T) {
 		stub(t, chargeRequest, obj{"status": 500})
 
 		_, err := client.Charge(ctx, req)
 		require.Error(t, err)
 		assert.NotErrorIs(t, err, usecase.ErrPaymentDeclined, "5xx is not a business decline")
+		assert.NotErrorIs(t, err, usecase.ErrPaymentRejected, "after a 5xx the charge may have happened")
 	})
 
 	t.Run("malformed response", func(t *testing.T) {
